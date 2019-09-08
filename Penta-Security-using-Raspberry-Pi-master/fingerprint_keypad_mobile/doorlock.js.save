@@ -1,0 +1,126 @@
+#!/usr/bin/env node
+///////////////
+var spawn = require('child_process').spawn,
+    py    = spawn('python', ['test/compute_input.py']),
+    data = [23,23],
+    dataString = '';
+    pas='';
+
+
+////////////////
+var unlockedState = 1000;
+var lockedState = 2200;
+
+var motorPin = 14;
+var buttonPin = 23;
+var ledPin = 11;
+
+var blynkToken = '8e27d238823140ae80940fe26bf53f1b';
+
+// *** Start code *** //
+
+var locked = true;
+var numAsked = true;
+
+//Setup servo
+var Gpio = require('pigpio').Gpio,
+  motor = new Gpio(motorPin, {mode: Gpio.OUTPUT}),
+  button = new Gpio(buttonPin, {
+   mode: Gpio.INPUT,
+ pullUpDown: Gpio.PUD_DOWN,
+  edge: Gpio.FALLING_EDGE
+  }),
+  led = new Gpio(ledPin, {mode: Gpio.OUTPUT});
+
+//Setup blynk
+var Blynk = require('blynk-library');
+var blynk = new Blynk.Blynk(blynkToken);
+var v0 = new blynk.VirtualPin(0);
+var v1 = new blynk.VirtualPin(1);
+
+console.log("locking door")
+lockDoor()
+
+button.on('interrupt', function (level) {
+	console.log("level: " + level + " locked:  " + locked)
+	if (level == 0) {
+		if (locked) {
+			unlockDoor()
+		} else {
+			lockDoor()
+		}
+	}
+});
+
+v0.on('write', function(param) {
+	console.log('V0:', param);
+  	if (param[0] === '0') { //unlocked
+  		unlockDoor()
+  	} else if (param[0] === '1') { //locked
+  		lockDoor()
+  	} else {
+  		blynk.notify("Door lock button was pressed with unknown parameter");
+  	}
+});
+v1.on('write', function(param1) {
+        console.log('V1:', param1);
+        if (param1[0] === '1') { //locked
+		blynk.notify("1234");
+		numAsked= true;
+                askNum()
+
+        } else if (param1[0] === '0') { //unlocked
+        	numAsked=false;
+		dataString='';
+		pas='';
+	       blynk.notify("Door is locked");
+        } else {
+                blynk.notify("Door lock button was pressed with unknown parameter");
+        }
+});
+
+blynk.on('connect', function() { console.log("Blynk ready."); });
+blynk.on('disconnect', function() { console.log("DISCONNECT"); });
+
+function lockDoor() {
+	motor.servoWrite(lockedState);
+	led.digitalWrite(1);
+	locked = true
+
+	//notify
+  	blynk.notify("Door locked");
+  	
+  	//After 1.5 seconds, the door lock servo turns off to avoid stall current
+  	setTimeout(function(){motor.servoWrite(0)}, 1500)
+}
+
+//for keypad
+function askNum(){
+	if(numAsked== true){
+		console.log('Enter 4 digits:');
+
+		py.stdout.on('data', function(data){
+ 		 dataString += data.toString();
+		});
+		py.stdout.on('end', function(){
+		  console.log('key=',dataString);
+		});
+		   pas=dataString;
+		py.stdin.write(JSON.stringify(data));
+		py.stdin.end();
+	
+		}
+		
+}
+
+function unlockDoor() {
+	motor.servoWrite(unlockedState);
+//	led.digitalWrite(0);
+	locked = false
+
+	//notify
+  	blynk.notify("Door has been unlocked!"); 
+
+  	//After 1.5 seconds, the door lock servo turns off to avoid stall current
+  	setTimeout(function(){motor.servoWrite(0)}, 1500)
+}
